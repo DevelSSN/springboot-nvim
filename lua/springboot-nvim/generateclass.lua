@@ -5,6 +5,8 @@ local start_buf
 local windows
 local bufs
 
+local utils = require("springboot-nvim.utils")
+
 local class_boiler_plate = "package %s;\n\npublic class %s{\n\n}"
 
 local function generate_class()
@@ -100,8 +102,8 @@ local function create_ui(bufnr)
     -- Get the file from where the generate class was called from
     start_buf = vim.fn.bufname(bufnr)
     local file_path = vim.fn.fnamemodify(start_buf, ':p')
-    local project_root = get_spring_boot_project_root(file_path) 
-    local main_class_dir =  find_main_application_class_directory(project_root)
+    local project_root = utils.get_spring_boot_project_root(file_path) 
+    local main_class_dir =  utils.find_main_application_class_directory(project_root)
     windows = {}
     bufs = {}
     -- Create buffer for popup
