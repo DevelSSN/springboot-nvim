@@ -6,6 +6,7 @@ local windows
 local bufs
 
 local utils = require("springboot-nvim.utils")
+local ui_utils = require("springboot-nvim.ui.ui_utils")
 
 local class_boiler_plate = "package %s;\n\npublic class %s{\n\n}"
 
@@ -85,7 +86,7 @@ local function create_package_ui(row, col, width, height, file_path)
         col = col,
         zindex = 102
     }
-    local package = package_text(file_path)
+    local package = ui_utils.package_text(file_path)
     api.nvim_buf_set_lines(package_buf, 0, -1, false, {package})
     local package_win = api.nvim_open_win(package_buf, true, opts)
  
@@ -140,7 +141,7 @@ local function create_ui(bufnr)
         zindex = 100
     }
 
-    local outline = draw_border(width, height)
+    local outline = ui_utils.draw_border(width, height)
     api.nvim_buf_set_lines(border_buf, 0, -1, false, outline)
 
     local border_win = api.nvim_open_win(border_buf, true, border_opts)
