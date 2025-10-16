@@ -1,18 +1,20 @@
+-- lua/springboot-nvim/generateclass.lua
+
 local api = vim.api
-local buf, win
-local start_buf
-
-local windows
-local bufs
-
 local utils = require("springboot-nvim.utils")
-local ui_utils = require("springboot-nvim.ui.ui_utils")
 
-local class_boiler_plate = "package %s;\n\npublic class %s{\n\n}"
+-- Java boilerplate templates
+local templates = {
+    class = "package %s;\n\npublic class %s {\n\n}",
+    record = "package %s;\n\npublic record %s() {\n}",
+    interface = "package %s;\n\npublic interface %s {\n\n}",
+    enum = "package %s;\n\npublic enum %s {\n\n}"
+}
 
-local function generate_class()
+local function generate_java_file(start_buf, type, package_buf, name_buf)
     local file_path = vim.fn.fnamemodify(start_buf, ':p')
-    -- Search the LAST occurrence of "/java/" in file_path
+
+    -- Get root path up to /java/
     local last_java_idx = nil
     local search_start = 1
     while true do
@@ -23,155 +25,66 @@ local function generate_class()
     end
 
     if not last_java_idx then
-        -- Error to the console and abort
         print("Could not find /java/ folder in path")
         return
     end
-    -- root_path will be like "/.../src/main/java"
+
     local root_path = file_path:sub(1, last_java_idx - 1)
-    -- Make sure there is content in the class buffer
-    local class_lines = api.nvim_buf_get_lines(bufs[4], 0, -1, false)
-    local class_content = table.concat(class_lines)
-    local package_lines = api.nvim_buf_get_lines(bufs[3], 0, -1, false)
-    local base_package_path = table.concat(package_lines)
-    local package_path = base_package_path:gsub("%.", "/")
-    if (package_path:sub(-1, -1) ~= '/' and package_path ~= '') then
+
+    -- Get content from buffers
+    local package_lines = api.nvim_buf_get_lines(package_buf, 0, -1, false)
+    local class_lines = api.nvim_buf_get_lines(name_buf, 0, -1, false)
+    local package_str = table.concat(package_lines):gsub("%s+", "")
+    local class_str = table.concat(class_lines):gsub("%s+", "")
+
+    if package_str == "" or class_str == "" then
+        print("Package and class/interface/record/enum name cannot be empty")
+        return
+    end
+
+    -- Convert package to file path
+    local package_path = package_str:gsub("%.", "/")
+    if package_path:sub(-1) ~= "/" then
         package_path = package_path .. "/"
     end
 
-    if(class_content ~= '') then
-        -- Check the specified package directory to make sure it exists
-        if(vim.fn.isdirectory(root_path .. '/' .. package_path) == 1) then
-            print("package directory exists")
-        else
-            -- Make the package directory if it does not exist
-            local command = 'mkdir -p ' .. root_path .. '/' .. package_path
-            os.execute(command)
-        end
-        -- Generate the new java file and inject boiler plate
-        -- Need to strip and trailing periods from the package
-        if(base_package_path:sub(-1, -1) == '.') then
-            base_package_path = string.sub(base_package_path, 1, -2)
-        end
-        local java_file_content = string.format(class_boiler_plate, base_package_path, class_content)
-        local java_file = io.open(root_path .. "/" .. package_path .. class_content .. ".java", "r")
-        if(java_file) then
-            print("Class already exists in package")
-            java_file:close()
-        else
-            java_file = io.open(root_path .. "/" .. package_path .. class_content .. ".java", "w")
-            java_file:write(java_file_content)
-            java_file:close()
-            close_generate_class()
-            local path = root_path .. "/" .. package_path .. class_content .. ".java"
-            vim.cmd('edit ' .. vim.fn.fnameescape(path))
-        end
-    else
-        print("Please specify a class name to continue")
+    local full_dir = root_path .. "/" .. package_path
+    local full_file_path = full_dir .. class_str .. ".java"
+
+    -- Ensure directory exists
+    if vim.fn.isdirectory(full_dir) ~= 1 then
+        os.execute("mkdir -p " .. full_dir)
     end
 
-end
+    -- Prevent overwriting
+    local existing_file = io.open(full_file_path, "r")
+    if existing_file then
+        print(type:sub(1,1):upper() .. type:sub(2) .. " already exists in package")
+        existing_file:close()
+        return
+    end
 
-local function create_package_ui(row, col, width, height, file_path)
-    local package_buf = api.nvim_create_buf(false, true)
-    --api.nvim_buf_set_option(package_buf, 'bufhidden', 'wipe')
-    api.nvim_buf_set_option(package_buf, 'filetype', 'springbootnvim')
-    
-    local opts = {
-        style = 'minimal',
-        relative = 'editor',
-        width = width,
-        height = height,
-        row = row,
-        col = col,
-        zindex = 102
-    }
-    local package = ui_utils.package_text(file_path)
-    api.nvim_buf_set_lines(package_buf, 0, -1, false, {package})
-    local package_win = api.nvim_open_win(package_buf, true, opts)
- 
-    table.insert(windows, package_win)
-    table.insert(bufs, package_buf)
-    return {
-        buf = package_buf,
-        win = package_win
-    }
+    -- Remove trailing '.' from package if exists
+    if package_str:sub(-1) == "." then
+        package_str = package_str:sub(1, -2)
+    end
 
-end
+    local template = templates[type]
+    if not template then
+        print("Unsupported type: " .. type)
+        return
+    end
 
-local function create_ui(bufnr)
-    -- Get the file from where the generate class was called from
-    start_buf = vim.fn.bufname(bufnr)
-    local file_path = vim.fn.fnamemodify(start_buf, ':p')
-    local project_root = utils.get_spring_boot_project_root(file_path) 
-    local main_class_dir =  utils.find_main_application_class_directory(project_root)
-    windows = {}
-    bufs = {}
-    -- Create buffer for popup
-    buf = api.nvim_create_buf(false, true)
-    table.insert(bufs, buf)
-    api.nvim_buf_set_option(buf, 'bufhidden', 'wipe')
-    local border_buf = api.nvim_create_buf(false, true)
-    table.insert(bufs, border_buf)
-    --api.nvim_buf_set_option(border_buf, 'bufhidden', 'wipe')
+    -- Write the new file
+    local java_code = string.format(template, package_str, class_str)
+    local file = io.open(full_file_path, "w")
+    file:write(java_code)
+    file:close()
 
-    local width = 60
-    local height = 8
-
-    local row = math.floor((vim.fn.winheight(0) - height) / 2)
-    local col = math.floor((vim.fn.winwidth(0) - width) / 2)
-
-    local border_opts = {
-        style = 'minimal',
-        relative = 'editor',
-        width = width + 2,
-        height = height + 2,
-        row = row - 1,
-        col = col - 1,
-        zindex = 99
-    }
-
-    local opts = {
-        style = 'minimal',
-        relative = 'editor',
-        width = width,
-        height = height,
-        row = row,
-        col = col,
-        zindex = 100
-    }
-
-    local outline = ui_utils.draw_border(width, height)
-    api.nvim_buf_set_lines(border_buf, 0, -1, false, outline)
-
-    local border_win = api.nvim_open_win(border_buf, true, border_opts)
-    table.insert(windows, border_win)
-    win = api.nvim_open_win(buf, true, opts)
-    table.insert(windows, win)
-    --api.nvim_command('au BufWipeout <buffer> exe "silent bdelete! "' ..border_buf)
-    
-    --api.nvim_win_set_option(win, 'cursorline', true)
-    
-    api.nvim_buf_set_lines(buf, 0, -1, false, {ui_utils.center_text("Generate Class")})
-    local package_section = draw_package_section()
-    api.nvim_buf_set_lines(buf, 1, -1, false, package_section)
-    local class_section = draw_class_section()
-    api.nvim_buf_set_lines(buf, 5, -1, false, class_section)
-    api.nvim_buf_set_lines(buf, 8, -1, false, {ui_utils.center_text('Confirm selections with <Enter>')})
-    local package_area = create_package_ui(row + 2, col + 10, 48, 1, main_class_dir)
-    local class_area = create_class_ui(row + 5, col + 10, 25, 1)
-    api.nvim_set_current_win(package_area.win)
-    local first_line = vim.fn.getline(1,1)
-    local first_line_length = string.len(first_line[1])
-    --api.nvim_feedkeys('a', 'n', true)
-    api.nvim_win_set_cursor(package_area.win, {1,first_line_length})
-    set_mappings()
+    -- Open in current window
+    vim.cmd("edit " .. vim.fn.fnameescape(full_file_path))
 end
 
 return {
-    create_ui = create_ui,
-    close_generate_class = close_generate_class,
-    navigate_to_class = navigate_to_class,
-    navigate_to_package = navigate_to_package,
-    generate_class = generate_class
+    generate_java_file = generate_java_file
 }
